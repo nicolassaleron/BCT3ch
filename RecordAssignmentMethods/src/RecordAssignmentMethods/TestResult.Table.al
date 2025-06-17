@@ -13,6 +13,11 @@ table 50001 "Test Result PTE"
             Caption = 'Method';
             ToolTip = 'Specifies the method used for the record assignment.';
         }
+        field(7; "Is Temporary"; Boolean)
+        {
+            Caption = 'Is Temporary';
+            ToolTip = 'Specifies if the source/destination records are temporary.';
+        }
         field(3; "Field Copied"; Boolean)
         {
             Caption = 'Field Copied';
@@ -28,16 +33,11 @@ table 50001 "Test Result PTE"
             Caption = 'Global Variable Copied';
             ToolTip = 'Specifies if the global variable from the source record was copied to the new record.';
         }
-        field(7; "Set Load Fields Copied"; Boolean)
-        {
-            Caption = 'Set Load Fields Copied';
-            ToolTip = 'Specifies if the SetLoadFields specified on the source record was copied to the new record.';
-        }
     }
 
     keys
     {
-        key(PK; "Method")
+        key(PK; "Method", "Is Temporary")
         {
             Clustered = true;
         }

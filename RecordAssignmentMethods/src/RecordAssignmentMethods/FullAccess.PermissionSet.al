@@ -12,5 +12,6 @@ permissionset 50000 "Full Access PTE"
         codeunit "Copy Assign.Meth.PTE" = X,
         codeunit "FunctionReturn Assign.Meth.PTE" = X,
         codeunit "Operator Assign.Meth.PTE" = X,
-        codeunit "TransferFields Assign.Meth.PTE" = X;
+        codeunit "TransferFields Assign.Meth.PTE" = X,
+        page "Record Assignment Methods PTE" = X;
 }

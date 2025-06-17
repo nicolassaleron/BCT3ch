@@ -6,6 +6,6 @@ codeunit 50001 "Copy Assign.Meth.PTE" implements "Assignment Method PTE"
     begin
         // Using the Copy method to copy all fields and properties
         // This performs a deep copy including system fields like filters, etc.
-        Destination.Copy(Source);
+        Destination.Copy(Source, Source.IsTemporary());
     end;
 }

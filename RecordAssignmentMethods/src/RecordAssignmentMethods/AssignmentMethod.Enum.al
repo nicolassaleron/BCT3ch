@@ -24,4 +24,9 @@ enum 50000 "Assignment Method PTE" implements "Assignment Method PTE"
         Caption = 'DestinationRecord := GetSourceRecord()';
         Implementation = "Assignment Method PTE" = "FunctionReturn Assign.Meth.PTE";
     }
+    value(4; "Function Copy Return")
+    {
+        Caption = 'DestinationRecord.Copy(GetSourceRecord())';
+        Implementation = "Assignment Method PTE" = "FctReturnCopy Assign.Meth.PTE";
+    }
 }
