@@ -1,0 +1,32 @@
+{
+    "id": "f4b2bfe7-ab37-4f4c-a3b6-fbd942283ef9",
+    "name": "RecordAssignmentMethods",
+    "publisher": "Nicolas Saleron",
+    "version": "1.0.0.0",
+    "brief": "",
+    "description": "",
+    "privacyStatement": "https://github.com/nicolassaleron/BCT3ch",
+    "EULA": "https://github.com/nicolassaleron/BCT3ch",
+    "help": "https://github.com/nicolassaleron/BCT3ch",
+    "url": "https://github.com/nicolassaleron/BCT3ch",
+    "application": "26.0.0.0",
+    "platform": "1.0.0.0",
+    "idRanges": [
+        {
+            "from": 50000,
+            "to": 50099
+        }
+    ],
+    "resourceExposurePolicy": {
+        "allowDebugging": true,
+        "allowDownloadingSource": true,
+        "includeSourceInSymbolFile": true
+    },
+    "runtime": "15.0",
+    "target": "Cloud",
+    "internalsVisibleTo": [],
+    "features": [
+        "TranslationFile"
+    ],
+    "suppressWarnings": []
+}

@@ -1,0 +1,28 @@
+{
+  "folders": [
+    {
+      "path": "RecordAssignmentMethods"
+    }
+  ],
+  "settings": {
+    "CRS.AlSubFolderName": "src",
+    "CRS.ExtensionObjectNamePattern": "",
+    "CRS.FileNamePattern": "<ObjectNameShort>.<ObjectTypeShortPascalCase>.al",
+    "CRS.FileNamePatternExtensions": "<ObjectNameShort>.<ObjectTypeShortPascalCase>.al",
+    "CRS.FileNamePatternPageCustomizations": "<ObjectNameShort>.<ObjectTypeShortPascalCase>.al",
+    "CRS.ObjectNamePrefix": "",
+    "CRS.ObjectNameSuffix": "PTE",
+    "CRS.RemoveSuffixFromFilename": true,
+    "CRS.ReorganizeByNamespace": true,
+    "CRS.OnSaveAlFileAction": "DoNothing",
+    "CRS.NamespacePrefixToIgnore": "NicolasSaleron.BCT3ch",
+    "CRS.RenameWithGit": false,
+    "al.codeAnalyzers": [
+      "${PerTenantExtensionCop}",
+      "${CodeCop}",
+      "${UICop}"
+    ],
+    "al.enableCodeAnalysis": true,
+    "al.enableCodeActions": true
+  }
+}
