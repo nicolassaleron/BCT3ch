@@ -22,6 +22,6 @@ enum 50000 "Assignment Method PTE" implements "Assignment Method PTE"
     value(3; "Function Return")
     {
         Caption = 'DestinationRecord := GetSourceRecord()';
-        Implementation = "Assignment Method PTE" = "Function Return Assign.Meth.PTE";
+        Implementation = "Assignment Method PTE" = "FunctionReturn Assign.Meth.PTE";
     }
 }

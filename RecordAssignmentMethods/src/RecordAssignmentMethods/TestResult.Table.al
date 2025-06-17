@@ -8,7 +8,7 @@ table 50001 "Test Result PTE"
 
     fields
     {
-        field(1; "Method"; Enum "Assignment Method PTE")
+        field(1; Method; Enum "Assignment Method PTE")
         {
             Caption = 'Method';
             ToolTip = 'Specifies the method used for the record assignment.';
