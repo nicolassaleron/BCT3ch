@@ -25,6 +25,7 @@
 **/.alcache/
 **/.altemplates/
 **/.altestrunner/
+**/*.app
 
 # End of https://www.gitignore.io/api/al,windows
 
