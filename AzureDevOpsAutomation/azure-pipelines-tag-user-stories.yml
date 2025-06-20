@@ -1,0 +1,549 @@
+# Azure Pipelines YAML file to tag User Stories with PR links
+# This pipeline retrieves all User Stories (non Closed) in the Azure DevOps project,
+# checks for pull request links, and tags them with "branch-main" or "branch-qa" based on the target branch of the PR.
+# The PR is expected to be done on GitHub.
+# This pipeline requires the following variables to be set:
+# - AzureDevOpsAccessToken: Personal Access Token with permissions to read and update work items, and read GitHub connections.
+# - GitHubAccessToken: Personal Access Token with permissions to read pull requests from the GitHub repository.
+
+trigger: none # This pipeline should be run manually or on a schedule
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+variables:
+  # System variables that will be automatically populated
+  - name: organizationUrl
+    value: $(System.TeamFoundationCollectionUri)
+  - name: projectName
+    value: $(System.TeamProject)
+
+stages:
+- stage: TagUserStories
+  displayName: 'Tag User Stories with PR Links'
+  jobs:
+  - job: ProcessUserStories
+    displayName: 'Process User Stories'
+    steps:
+      # Get all User Stories and check for PR links
+    - task: PowerShell@2
+      displayName: 'Tag User Stories with PR Links'
+      inputs:
+        targetType: 'inline'
+        script: |
+            $organizationUrl = "$(organizationUrl)"
+            $projectName = "$(projectName)"
+            $accessToken = "${env:AZUREDEVOPSACCESSTOKEN}"
+            $githubToken = "${env:GITHUBACCESSTOKEN}"
+
+            #region Functions
+
+            <#
+                .SYNOPSIS
+                Retrieves pull request URLs from a work item in Azure DevOps.
+
+                .DESCRIPTION
+                This function checks the relations of a work item to find any pull request URLs.
+
+                .PARAMETER WorkItem
+                The work item object from which to extract pull request URLs.
+
+                .EXAMPLE
+                $workItem = Get-WorkItem -Id 12345
+                $pullRequestUrls = Get-WorkItemPullRequestUrls -WorkItem $workItem
+            #>
+            function Get-WorkItemPullRequestUrls {
+                param(
+                    [object]$WorkItem
+                )
+
+                $pullRequestUrls = @()
+
+                if (-not $WorkItem.relations) {
+                    return $pullRequestUrls
+                }
+
+                foreach ($relation in $WorkItem.relations) {
+                    # Check for pull request relations
+                    if ($relation.rel -eq "ArtifactLink" -and $relation.url -like "*pullrequest*") {
+                        Write-Host "##[debug] Found Pull Request link: $($relation.url)"
+                        $pullRequestUrls += $relation.url
+                    }
+                    # Also check for GitHub pull request links
+                    elseif ($relation.rel -eq "Hyperlink" -and ($relation.url -like "*pull/*" -or $relation.url -like "*pullrequest*")) {
+                        Write-Host "##[debug] Found Pull Request hyperlink: $($relation.url)"
+                        $pullRequestUrls += $relation.url
+                    }
+                }
+                return $pullRequestUrls
+            }
+
+            <#
+                .SYNOPSIS
+                Retrieves details of a GitHub pull request from Azure DevOps VSTFS URL.
+
+                .DESCRIPTION
+                This function extracts the pull request number from a VSTFS URL and retrieves details about the pull request
+                using the Azure DevOps GitHub connection API and the GitHub REST API.
+
+                .PARAMETER VstfsUrl
+                The VSTFS URL of the pull request, typically in the format "vstfs:///GitHub/PullRequest/{connectionId}%2f{prNumber}".
+
+                .PARAMETER AzureDevOpsBaseUrl
+                The base URL for the Azure DevOps REST API, typically in the format "https://dev.azure.com/{organization}/{project}/_apis".
+
+                .PARAMETER AzureDevOpsHeaders
+                A hashtable containing the headers for the Azure DevOps REST API request, including the authorization token.
+
+                .PARAMETER GithubToken
+                A GitHub Personal Access Token used to authenticate requests to the GitHub REST API.
+            #>
+            function Get-GitHubPullRequestDetails {
+                param(
+                    [string]$VstfsUrl,
+                    [string]$AzureDevOpsBaseUrl,
+                    [hashtable]$AzureDevOpsHeaders,
+                    [string]$GithubToken
+                )
+
+                $GitHubHeaders = @{
+                    'Authorization' = "Bearer $($GithubToken)"
+                }
+                
+                try {
+                    # Parse the VSTFS URL to extract connection ID and PR number
+                    if ($VstfsUrl -match "vstfs:///GitHub/PullRequest/([^%]+)%2f(\d+)") {
+                        #$connectionId = $matches[1]
+                        $prNumber = [int]$matches[2]
+                        
+                        Write-Host "##[debug] Pull Request Number: $prNumber"
+                        
+                        # Get the GitHub connection details to find the repository
+                        $connectionUrl = "$AzureDevOpsBaseUrl/githubconnections`?api-version=7.2-preview.1"
+                        
+                        try {
+                            $connectionsResponse = Invoke-RestMethod -Uri $connectionUrl -Method Get -Headers $AzureDevOpsHeaders
+                            $connectionId = $connectionsResponse.value[0].id
+                            Write-Host "##[debug] GitHub Connection ID: $connectionId"
+
+                            $connectionReposUrl = "$AzureDevOpsBaseUrl/githubconnections/$connectionId/repos`?api-version=7.2-preview.1"
+                            $connectionReposResponse = Invoke-RestMethod -Uri $connectionReposUrl -Method Get -Headers $AzureDevOpsHeaders
+                            $repoUrl = $connectionReposResponse.value.gitHubRepositoryUrl
+                            
+                            # Extract owner and repo from GitHub URL
+                            if ($repoUrl -match "github\.com/([^/]+)/([^/]+)") {
+                                $owner = $matches[1]
+                                $repo = $matches[2].TrimEnd('.git')
+                                
+                                Write-Host "GitHub Repository: $owner/$repo"
+                                
+                                
+                                # Try to get PR details using GitHub API
+                                # Note: This might require a separate GitHub Personal Access Token
+                                $githubApiUrl = "https://api.github.com/repos/$owner/$repo/pulls/$prNumber"
+                                
+                                try {
+                                    # First try without authentication (public repos only)
+                                    $prResponse = Invoke-RestMethod -Uri $githubApiUrl -Method Get -Headers $GitHubHeaders
+                                    
+                                    Write-Host "##[debug] PR Title: $($prResponse.title)"
+                                    Write-Host "##[debug] PR State: $($prResponse.state)"
+                                    Write-Host "##[debug] Source Branch: $($prResponse.head.ref)"
+                                    Write-Host "##[debug] Target Branch: $($prResponse.base.ref)"
+                                    Write-Host "##[debug] PR URL: $($prResponse.html_url)"
+                                    Write-Host "##[debug] Created: $($prResponse.created_at)"
+                                    Write-Host "##[debug] Updated: $($prResponse.updated_at)"
+                                    
+                                    if ($prResponse.merged_at) {
+                                        Write-Host "##[debug] Merged: $($prResponse.merged_at)" -ForegroundColor Green
+                                    }
+                                    
+                                    return @{
+                                        Title = $prResponse.title
+                                        State = $prResponse.state
+                                        SourceBranch = $prResponse.head.ref
+                                        TargetBranch = $prResponse.base.ref
+                                        Url = $prResponse.html_url
+                                        Created = $prResponse.created_at
+                                        Updated = $prResponse.updated_at
+                                        Merged = $prResponse.merged_at
+                                    }
+                                }
+                                catch {
+                                    Write-Host "##[warning] Failed to get GitHub PR details: $($_.Exception.Message)" -ForegroundColor Yellow
+                                    Write-Host "##[debug] Note: For private repositories, you'll need a GitHub Personal Access Token" -ForegroundColor Yellow
+                                    Write-Host "##[debug] GitHub API URL: $githubApiUrl" -ForegroundColor Gray
+                                    return $null
+                                }
+                            }
+                            else {
+                                Write-Host "##[warning] Could not parse GitHub repository URL: $repoUrl" -ForegroundColor Yellow
+                                return $null
+                            }
+                        }
+                        catch {
+                            Write-Host "##[warning] Failed to get GitHub connection details: $($_.Exception.Message)" -ForegroundColor Yellow
+                            return $null
+                        }
+                    }
+                    else {
+                        Write-Host "##[warning] Could not parse VSTFS URL format: $VstfsUrl" -ForegroundColor Yellow
+                        return $null
+                    }
+                }
+                catch {
+                    Write-Host "##[warning] Error processing GitHub PR URL: $($_.Exception.Message)" -ForegroundColor Red
+                    return $null
+                }
+            }
+
+            <#
+                .SYNOPSIS
+                Tests if the provided Azure DevOps token has the necessary permissions to access work items.
+
+                .DESCRIPTION
+                This function attempts to access a specific work item to verify that the provided Azure DevOps token has the required permissions.
+                It checks if the 'System.Tags' field can be read, which is essential for tagging work items.
+
+                .PARAMETER Headers
+                A hashtable containing the headers for the Azure DevOps REST API request, including the authorization token.
+
+                .EXAMPLE
+                Test-AzureDevOpsTokenPermissions -Headers $Headers
+            #>
+            function Test-AzureDevOpsTokenPermissions {
+                param(
+                    [hashtable]$Headers
+                )
+
+                Write-Host "Testing API permissions..."
+                try {
+                    $testUrl = "$baseUrl/wit/workitems/3?api-version=7.1-preview.3"
+                    $testResponse = Invoke-RestMethod -Uri $testUrl -Method Get -Headers $Headers
+                    Write-Host "✓ Successfully accessed work item 3 - permissions OK" -ForegroundColor Green
+                            
+                    # Check if we can read the fields we need
+                    if ($testResponse.fields) {
+                        Write-Host "✓ Can read work item fields" -ForegroundColor Green
+                        if ($testResponse.fields.'System.Tags') {
+                            Write-Host "✓ Can read System.Tags field: '$($testResponse.fields.'System.Tags')'" -ForegroundColor Green
+                        }
+                        else {
+                            Write-Host "##[warning] ! System.Tags field is empty or not accessible" -ForegroundColor Yellow
+                        }
+                    }
+                }
+                catch {
+                    Write-Host "##[error] ✗ Failed to access work items - permission issue: $($_.Exception.Message)" -ForegroundColor Red
+                    Write-Host "##[error] Make sure 'Allow scripts to access the OAuth token' is enabled in pipeline settings" -ForegroundColor Yellow
+                    return 1
+                }
+
+            }
+
+            <#
+                .SYNOPSIS
+                Retrieves all User Stories from Azure DevOps using WIQL and returns detailed work item information.
+
+                .DESCRIPTION
+                This function executes a WIQL query to get all User Stories in the specified Azure DevOps project.
+
+                .PARAMETER Headers
+                A hashtable containing the headers for the Azure DevOps REST API request, including the authorization token.
+
+                .PARAMETER BaseUrl
+                The base URL for the Azure DevOps REST API, typically in the format "https://dev.azure.com/{organization}/{project}/_apis".
+
+                .EXAMPLE
+                $workItems = Get-WorkItems -Headers $headers -BaseUrl $baseUrl
+
+            #>
+            function Get-WorkItems {
+                param(
+                    [hashtable]$Headers,
+                    [string]$BaseUrl
+                )
+
+                $wiqlUrl = "$BaseUrl/wit/wiql?api-version=7.1-preview.2"
+                $workItemUrl = "$BaseUrl/wit/workitems" 
+
+                # WIQL query to get all User Stories
+                $wiqlQuery = @{
+                    query = "SELECT [System.Id], [System.Title], [System.Tags] FROM WorkItems WHERE [System.WorkItemType] = 'User Story' AND [System.TeamProject] = '$($projectName)' AND [System.State] <> 'Closed'"
+                } | ConvertTo-Json
+                        
+                Write-Host "Executing WIQL query to get User Stories..."
+                
+                try {
+                    # Execute WIQL query
+                    Write-Host "##[debug] WIQL URL: $wiqlUrl"
+                    Write-Host "##[debug] WIQL Query: $wiqlQuery"
+                            
+                    $wiqlResponse = Invoke-RestMethod -Uri $wiqlUrl -Method Post -Headers $Headers -Body $wiqlQuery
+                            
+                    if ($wiqlResponse.workItems.Count -eq 0) {
+                        Write-Host "No User Stories found in the project."
+                        return $null
+                    }
+                            
+                    Write-Host "Found $($wiqlResponse.workItems.Count) User Stories"# Get work item IDs
+                    $workItemIds = $wiqlResponse.workItems | ForEach-Object { $_.id }
+                    $idsString = $workItemIds -join ","
+                            
+                    # Get detailed work item information including relations
+                    # Build URL more safely
+                    $detailsUrlBase = "$workItemUrl"
+                    $queryParams = @(
+                        "ids=$idsString"
+                        "`$expand=relations"
+                        "api-version=7.1-preview.3"
+                    )
+                    $detailsUrl = $detailsUrlBase + "?" + ($queryParams -join "&")
+                    Write-Host "Getting detailed work item information..."
+                    Write-Host "Work Item IDs: $idsString"
+                    Write-Host "Details URL: $detailsUrl"
+                    try {
+                        $workItemsResponse = Invoke-RestMethod -Uri $detailsUrl -Method Get -Headers $Headers
+                        Write-Host "##[debug] Successfully retrieved $($workItemsResponse.value.Count) work item details"
+
+                        return $workItemsResponse
+                    }
+                    catch {
+                        Write-Host "##[warning] Failed to get work item details in batch. Error: $($_.Exception.Message)" -ForegroundColor Yellow
+                        Write-Host "##[warning] URL that failed: $detailsUrl" -ForegroundColor Yellow
+                        Write-Host "##[warning] Falling back to individual work item processing..." -ForegroundColor Yellow
+                                
+                        # Fallback: Process work items individually
+                        $workItemsResponse = @{ value = @() }
+                        foreach ($workItemId in $workItemIds) {
+                            try {
+                                $singleItemUrl = "$workItemUrl/$workItemId`?`$expand=relations&api-version=7.1-preview.3"
+                                $singleItem = Invoke-RestMethod -Uri $singleItemUrl -Method Get -Headers $Headers
+                                $workItemsResponse.value += $singleItem
+                                Write-Host "Retrieved work item $workItemId successfully"
+                            }
+                            catch {
+                                Write-Host "##[warning] Failed to retrieve work item $workItemId`: $($_.Exception.Message)" -ForegroundColor Red
+                            }
+                        }
+                                
+                        if ($workItemsResponse.value.Count -eq 0) {
+                            throw "Could not retrieve any work item details"
+                        }
+                                
+                        Write-Host "##[debug] Successfully retrieved $($workItemsResponse.value.Count) work items individually"
+                        return $workItemsResponse
+                    }
+                }
+                catch {
+                    Write-Host "##[error] Error occurred: $($_.Exception.Message)" -ForegroundColor Red
+                    Write-Host "##[error] Error details: $($_.Exception)" -ForegroundColor Red
+                    return $null
+                }
+
+            }
+
+            <#
+                .SYNOPSIS
+                Adds a tag to a work item in Azure DevOps if it doesn't already exist.
+
+                .DESCRIPTION
+                This function checks if a specified tag already exists on a work item. If the tag is not present, it adds the tag to the work item and updates it via the Azure DevOps REST API.
+
+                .PARAMETER workItem
+                The work item object to which the tag will be added.
+
+                .PARAMETER newTag
+                The tag to be added to the work item.
+
+                .PARAMETER Headers
+                A hashtable containing the headers for the Azure DevOps REST API request, including the authorization token.
+
+                .PARAMETER BaseUrl
+                The base URL for the Azure DevOps REST API, typically in the format "https://dev.azure.com/{organization}/{project}/_apis".
+
+                .EXAMPLE
+                $workItem = Get-WorkItem -Id 12345
+                Add-WorkItemTag -workItem ([ref]$workItem) -newTag "pr" -Headers $Headers
+            #>
+            function Add-WorkItemTag {
+                param(
+                    [object][ref]$WorkItem,
+                    [string]$NewTag,
+                    [hashtable]$Headers,
+                    [string]$BaseUrl
+                )    
+                
+                $workItemUrl = "$BaseUrl/wit/workitems" 
+
+                $currentTags = $WorkItem.fields.'System.Tags'
+
+                # Check if "pr" tag already exists
+                $tags = if ($currentTags) { 
+                    $currentTags.Split(';') | ForEach-Object { $_.Trim() } | Where-Object { $_ -ne "" }
+                }
+                else { 
+                    @() 
+                }
+                # Ensure $tags is always an array
+                if ($tags -isnot [array]) {
+                    $tags = @($tags)
+                }
+
+                if ($tags -contains $NewTag) {
+                    Write-Host "Work item $($WorkItem.id) is already tagged with '$NewTag', skipping" -ForegroundColor Yellow
+                    return $false;
+                }
+
+                # Add "pr" tag
+                if ($tags.Count -eq 0) {
+                    $newTags = $NewTag
+                }
+                else {
+                    # Create new array with existing tags plus $newTag
+                    $allTags = @($tags) + @($NewTag)
+                    $newTags = $allTags -join "; "
+                }
+                            
+                Write-Host "##[debug] Current tags: '$currentTags'"
+                Write-Host "##[debug] New tags will be: '$newTags'"
+                            
+                # Prepare update payload
+                $updatePayload = ConvertTo-Json @(
+                    @{
+                        op    = "replace"
+                        path  = "/fields/System.Tags"
+                        value = $newTags
+                    }
+                )
+                            
+                Write-Host "##[debug] Update payload: $updatePayload"
+                            
+                # Update work item
+                $updateUrl = "$workItemUrl/$($WorkItem.id)`?api-version=7.1-preview.3"
+                Write-Host "##[debug] Update URL: $updateUrl"
+                try {
+                    $updateHeaders = $Headers.Clone()
+                    $updateHeaders['Content-Type'] = 'application/json-patch+json'
+                                
+                    Write-Host "##[debug] Sending PATCH request..."
+                    Write-Host "##[debug] Headers: Authorization = [HIDDEN], Content-Type = $($updateHeaders['Content-Type'])"
+                                
+                    # Use Invoke-WebRequest instead of Invoke-RestMethod for better error handling
+                    $response = Invoke-WebRequest -Uri $updateUrl -Method Patch -Headers $updateHeaders -Body $updatePayload -ErrorAction Stop
+
+                    if (-not $WorkItem.fields.'System.Tags') {
+                        $WorkItem.fields.PSObject.Properties.Add([psnoteproperty]::new('System.Tags', $newTags))
+                    }
+                    else {
+                        $WorkItem.fields.'System.Tags' = $newTags  # Update the existing tags field
+                    }
+
+                    Write-Host "Successfully tagged with '$NewTag'. New tags: $newTags" -ForegroundColor Green
+                    return $true
+                }
+                catch {
+                    Write-Host "##[debug] Failed to update work item: $($_.Exception.Message)" -ForegroundColor Red
+                                
+                    # Get detailed error information using Invoke-WebRequest
+                    if ($_.Exception.Response) {
+                        Write-Host "##[debug] HTTP Status: $($_.Exception.Response.StatusCode) - $($_.Exception.Response.StatusDescription)" -ForegroundColor Red
+                        try {
+                            $errorBody = $_.Exception.Response | ConvertFrom-Json
+                            Write-Host "##[debug] Error response: $($errorBody | ConvertTo-Json -Depth 3)" -ForegroundColor Red
+                        }
+                        catch {
+                            Write-Host "##[debug] Raw error response: $($_.Exception.Response)" -ForegroundColor Red
+                        }
+                    }
+                    
+                    return $false
+                }
+            }
+
+            #endregion
+                    
+            # Base URLs for Azure DevOps REST API
+            $baseUrl = "$($organizationUrl)$($projectName)/_apis"
+
+            $headers = @{
+                'Authorization' = "Bearer $($accessToken)"
+                'Content-Type'  = 'application/json'
+            }
+
+            # Test permissions first
+            Test-AzureDevOpsTokenPermissions -Headers $headers
+
+            Write-Host "Organization URL: $($organizationUrl)"
+            Write-Host "Project Name: $($projectName)"
+            Write-Host "Base URL: $baseUrl"
+
+            $workItemsResponse = Get-WorkItems -Headers $headers -BaseUrl $baseUrl
+
+            $processedCount = 0
+            $taggedCount = 0
+
+
+            foreach ($workItem in $workItemsResponse.value) {
+                $processedCount++
+                $workItemId = $workItem.id
+                $workItemTitle = $workItem.fields.'System.Title'
+                Write-Host "Processing Work Item $workItemId`: $workItemTitle"
+                            
+                # Check if work item has pull requests
+                $pullRequestUrls = Get-WorkItemPullRequestUrls -workItem $workItem
+                if ($pullRequestUrls.length -eq 0) {
+                    Write-Host "##[debug] No pull request links found, skipping" -ForegroundColor Yellow
+                    continue
+                }
+
+                # Get GitHub PR details for the all pull requests
+                $gitHubPullRequests = @()
+                foreach ($pullRequestUrl in $pullRequestUrls) {
+                    Write-Host "##[debug] Processing Pull Request URL: $pullRequestUrl"
+                    $prDetails = Get-GitHubPullRequestDetails -VstfsUrl $pullRequestUrl -AzureDevOpsBaseUrl $baseUrl -AzureDevOpsHeaders $headers  -GithubToken $githubToken
+                    
+                    if (-not $prDetails) {
+                        Write-Host "##[debug] Failed to get PR details for URL: $pullRequestUrl" -ForegroundColor Red
+                        continue
+                    }
+
+                    Write-Host "PR Title: $($prDetails.Title)"
+                    Write-Host "PR State: $($prDetails.State)"
+                    Write-Host "PR URL: $($prDetails.Url)"
+                    $gitHubPullRequests += $prDetails
+                }
+
+                $gitHubPullRequests = $gitHubPullRequests
+
+                foreach ($pr in $gitHubPullRequests) {
+                    if (-not $pr.Merged) {
+                        continue
+                    }
+
+                    switch ($pr.TargetBranch) {
+                        "main" { 
+                            if ((Add-WorkItemTag -WorkItem ([ref]$workItem) -NewTag "branch-main" -Headers $headers -BaseUrl $baseUrl)) {
+                                $taggedCount++
+                            }
+                        }
+                        "qa" {
+                            if ((Add-WorkItemTag -WorkItem ([ref]$workItem) -NewTag "branch-qa" -Headers $headers -BaseUrl $baseUrl)) {
+                                $taggedCount++
+                            }
+                        }
+                        Default {
+
+                        }
+                    }
+                }
+
+            }
+                        
+            Write-Host ""
+            Write-Host "=== SUMMARY ===" -ForegroundColor Cyan
+            Write-Host "Total User Stories processed: $processedCount" -ForegroundColor Cyan
+            Write-Host "User Stories tagged with 'pr': $taggedCount" -ForegroundColor Cyan
+      env:
+        GITHUBACCESSTOKEN: $(GitHubAccessToken)
+        AZUREDEVOPSACCESSTOKEN: $(AzureDevOpsAccessToken)
