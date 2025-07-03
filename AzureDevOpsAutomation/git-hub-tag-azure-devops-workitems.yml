@@ -1,0 +1,304 @@
+# GitHub Workflow to tag Azure DevOps Work Items when PR is merged
+# This workflow is triggered when a pull request is merged to main or qa branches,
+# finds related Azure DevOps work items from the PR body/title, and tags them based on the target branch.
+#
+# Required secrets:
+# - AZURE_DEVOPS_ACCESS_TOKEN: Personal Access Token with permissions to read and update work items
+# - AZURE_DEVOPS_ORGANIZATION: Your Azure DevOps organization name (e.g., "myorg" from https://dev.azure.com/myorg)
+# - AZURE_DEVOPS_PROJECT: Your Azure DevOps project name
+
+name: Tag Azure DevOps Work Items on PR Merge
+
+on:
+  pull_request:
+    types: [ closed ]
+    branches: [ main, qa ]
+
+jobs:
+  tag-work-items:
+    # Only run if the PR was actually merged (not just closed)
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Tag Azure DevOps Work Items
+      shell: pwsh
+      run: |
+        $organizationName = "${{ secrets.AZURE_DEVOPS_ORGANIZATION }}"
+        $projectName = "${{ secrets.AZURE_DEVOPS_PROJECT }}"
+        $accessToken = "${{ secrets.AZURE_DEVOPS_ACCESS_TOKEN }}"
+        $targetBranch = "${{ github.event.pull_request.base.ref }}"
+        $prTitle = "${{ github.event.pull_request.title }}"
+        $prBody = @"
+        ${{ github.event.pull_request.body }}
+        "@
+        $prNumber = "${{ github.event.pull_request.number }}"
+        $prUrl = "${{ github.event.pull_request.html_url }}"
+
+        Write-Host "=== GitHub Pull Request Information ===" -ForegroundColor Cyan
+        Write-Host "PR #$prNumber`: $prTitle" -ForegroundColor Green
+        Write-Host "Target Branch: $targetBranch" -ForegroundColor Green
+        Write-Host "PR URL: $prUrl" -ForegroundColor Green
+        Write-Host "Organization: $organizationName" -ForegroundColor Green
+        Write-Host "Project: $projectName" -ForegroundColor Green
+
+        #region Functions
+
+        <#
+            .SYNOPSIS
+            Extracts Azure DevOps work item IDs from text using common patterns.
+
+            .DESCRIPTION
+            This function searches for Azure DevOps work item references in text using patterns like:
+            - #12345 (hashtag followed by numbers)
+            - AB#12345 (work item prefix)
+            - Work Item 12345
+            - Task 12345, User Story 12345, etc.
+
+            .PARAMETER Text
+            The text to search for work item references.
+
+            .EXAMPLE
+            $workItemIds = Get-WorkItemIdsFromText -Text "Fixes #12345 and resolves AB#67890"
+        #>
+        function Get-WorkItemIdsFromText {
+            param(
+                [string]$Text
+            )
+
+            $workItemIds = @()
+            
+            if ([string]::IsNullOrWhiteSpace($Text)) {
+                return $workItemIds
+            }
+
+            # Pattern 1: #12345 (hashtag followed by numbers)
+            $hashtagPattern = '#(\d+)'
+            $hashtagMatches = [regex]::Matches($Text, $hashtagPattern)
+            foreach ($match in $hashtagMatches) {
+                $workItemIds += [int]$match.Groups[1].Value
+            }
+
+            # Pattern 2: AB#12345 (work item prefix - common Azure DevOps format)
+            $prefixPattern = '\b[A-Z]{1,4}#(\d+)'
+            $prefixMatches = [regex]::Matches($Text, $prefixPattern)
+            foreach ($match in $prefixMatches) {
+                $workItemIds += [int]$match.Groups[1].Value
+            }
+
+            # Pattern 3: "Work Item 12345", "Task 12345", "User Story 12345", etc.
+            $workItemPattern = '\b(?:Work Item|Task|User Story|Bug|Feature|Epic)\s+(\d+)'
+            $workItemMatches = [regex]::Matches($Text, $workItemPattern, [System.Text.RegularExpressions.RegexOptions]::IgnoreCase)
+            foreach ($match in $workItemMatches) {
+                $workItemIds += [int]$match.Groups[1].Value
+            }
+
+            # Remove duplicates and return
+            return $workItemIds | Select-Object -Unique
+        }
+
+        <#
+            .SYNOPSIS
+            Retrieves work item details from Azure DevOps.
+
+            .DESCRIPTION
+            This function gets detailed information about specific work items from Azure DevOps.
+
+            .PARAMETER WorkItemIds
+            Array of work item IDs to retrieve.
+
+            .PARAMETER Headers
+            A hashtable containing the headers for the Azure DevOps REST API request.
+
+            .PARAMETER BaseUrl
+            The base URL for the Azure DevOps REST API.
+        #>
+        function Get-WorkItemDetails {
+            param(
+                [int[]]$WorkItemIds,
+                [hashtable]$Headers,
+                [string]$BaseUrl
+            )
+
+            if ($WorkItemIds.Count -eq 0) {
+                return @()
+            }
+
+            $idsString = $WorkItemIds -join ","
+            $workItemUrl = "$BaseUrl/wit/workitems?ids=$idsString&api-version=7.1-preview.3"
+
+            try {
+                Write-Host "Retrieving work item details for IDs: $idsString" -ForegroundColor Yellow
+                $response = Invoke-RestMethod -Uri $workItemUrl -Method Get -Headers $Headers
+                
+                if ($response.value) {
+                    Write-Host "✓ Successfully retrieved $($response.value.Count) work items" -ForegroundColor Green
+                    return $response.value
+                }
+                else {
+                    Write-Host "No work items found for the provided IDs" -ForegroundColor Yellow
+                    return @()
+                }
+            }
+            catch {
+                Write-Host "Failed to retrieve work item details: $($_.Exception.Message)" -ForegroundColor Red
+                return @()
+            }
+        }
+
+        <#
+            .SYNOPSIS
+            Adds a tag to a work item in Azure DevOps if it doesn't already exist.
+
+            .DESCRIPTION
+            This function checks if a specified tag already exists on a work item. If the tag is not present, it adds the tag to the work item and updates it via the Azure DevOps REST API.
+
+            .PARAMETER WorkItem
+            The work item object to which the tag will be added.
+
+            .PARAMETER NewTag
+            The tag to be added to the work item.
+
+            .PARAMETER Headers
+            A hashtable containing the headers for the Azure DevOps REST API request, including the authorization token.
+
+            .PARAMETER BaseUrl
+            The base URL for the Azure DevOps REST API.
+        #>
+        function Add-WorkItemTag {
+            param(
+                [object]$WorkItem,
+                [string]$NewTag,
+                [hashtable]$Headers,
+                [string]$BaseUrl
+            )
+
+            $workItemId = $WorkItem.id
+            $currentTags = $WorkItem.fields.'System.Tags'
+
+            # Parse existing tags
+            $tags = if ($currentTags) { 
+                $currentTags.Split(';') | ForEach-Object { $_.Trim() } | Where-Object { $_ -ne "" }
+            }
+            else { 
+                @() 
+            }
+
+            # Ensure $tags is always an array
+            if ($tags -isnot [array]) {
+                $tags = @($tags)
+            }
+
+            # Check if tag already exists
+            if ($tags -contains $NewTag) {
+                Write-Host "  Work item $workItemId is already tagged with '$NewTag', skipping" -ForegroundColor Yellow
+                return $false
+            }
+
+            # Add new tag
+            if ($tags.Count -eq 0) {
+                $newTags = $NewTag
+            }
+            else {
+                $allTags = @($tags) + @($NewTag)
+                $newTags = $allTags -join "; "
+            }
+
+            Write-Host "  Current tags: '$currentTags'"
+            Write-Host "  New tags will be: '$newTags'"
+
+            # Prepare update payload
+            $updatePayload = ConvertTo-Json @(
+                @{
+                    op    = "replace"
+                    path  = "/fields/System.Tags"
+                    value = $newTags
+                }
+            )
+
+            # Update work item
+            $updateUrl = "$BaseUrl/wit/workitems/$workItemId" + "?api-version=7.1-preview.3"
+            
+            try {
+                $updateHeaders = $Headers.Clone()
+                $updateHeaders['Content-Type'] = 'application/json-patch+json'
+
+                $response = Invoke-WebRequest -Uri $updateUrl -Method Patch -Headers $updateHeaders -Body $updatePayload -ErrorAction Stop
+                Write-Host "  ✓ Successfully tagged work item $workItemId with '$NewTag'" -ForegroundColor Green
+                return $true
+            }
+            catch {
+                Write-Host "  ✗ Failed to update work item $workItemId`: $($_.Exception.Message)" -ForegroundColor Red
+                return $false
+            }
+        }
+
+        #endregion
+
+        # Main execution
+        $organizationUrl = "https://dev.azure.com/$organizationName"
+        $baseUrl = "$organizationUrl/$projectName/_apis"
+
+        $headers = @{
+            'Authorization' = "Basic $([Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes(":$accessToken")))"
+            'Content-Type'  = 'application/json'
+        }
+
+        # Extract work item IDs from PR title and body
+        $allText = "$prTitle`n$prBody"
+        $workItemIds = Get-WorkItemIdsFromText -Text $allText
+
+        if ($workItemIds.Count -eq 0) {
+            Write-Host "No Azure DevOps work item references found in PR title or body" -ForegroundColor Yellow
+            Write-Host "Searched text:" -ForegroundColor Gray
+            Write-Host $allText -ForegroundColor Gray
+            exit 0
+        }
+
+        Write-Host ""
+        Write-Host "Found work item references: $($workItemIds -join ', ')" -ForegroundColor Cyan
+
+        # Get work item details
+        $workItems = Get-WorkItemDetails -WorkItemIds $workItemIds -Headers $headers -BaseUrl $baseUrl
+
+        if ($workItems.Count -eq 0) {
+            Write-Host "No valid work items found" -ForegroundColor Yellow
+            exit 0
+        }
+
+        # Determine tag based on target branch
+        $tagToAdd = switch ($targetBranch) {
+            "main" { "UAT" }
+            "qa" { "QA" }
+            default { 
+                Write-Host "Unknown target branch '$targetBranch'. No tag will be applied." -ForegroundColor Yellow
+                exit 0
+            }
+        }
+
+        Write-Host ""
+        Write-Host "Processing $($workItems.Count) work items for '$tagToAdd' tag:" -ForegroundColor Cyan
+
+        $taggedCount = 0
+        foreach ($workItem in $workItems) {
+            $workItemId = $workItem.id
+            $workItemTitle = $workItem.fields.'System.Title'
+            $workItemType = $workItem.fields.'System.WorkItemType'
+            
+            Write-Host ""
+            Write-Host "Processing $workItemType $workItemId`: $workItemTitle" -ForegroundColor White
+            
+            if (Add-WorkItemTag -WorkItem $workItem -NewTag $tagToAdd -Headers $headers -BaseUrl $baseUrl) {
+                $taggedCount++
+            }
+        }
+
+        Write-Host ""
+        Write-Host "=== SUMMARY ===" -ForegroundColor Cyan
+        Write-Host "PR #$prNumber merged to '$targetBranch' branch" -ForegroundColor Cyan
+        Write-Host "Work items found: $($workItems.Count)" -ForegroundColor Cyan
+        Write-Host "Work items tagged with '$tagToAdd': $taggedCount" -ForegroundColor Cyan
+
+        if ($taggedCount -gt 0) {
+          Write-Host "✓ Successfully processed pull request merge" -ForegroundColor Green
+        }
