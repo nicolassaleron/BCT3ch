@@ -243,8 +243,8 @@ export class DSLParser {
             return options;
         }
 
-        if (optionsText.includes('suppressNotifications')) {
-            options.suppressNotifications = true;
+        if (optionsText.includes('notifications')) {
+            options.suppressNotifications = false;
         }
 
         if (optionsText.includes('bypassRules')) {
