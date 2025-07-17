@@ -2,6 +2,12 @@
   "folders": [
     {
       "path": "RecordAssignmentMethods"
+    },
+    {
+      "path": "AzureDevOpsAutomation"
+    },
+    {
+      "path": "AzureDevOpsAutoUpdateWorkItems"
     }
   ],
   "settings": {
@@ -23,6 +29,7 @@
       "${UICop}"
     ],
     "al.enableCodeAnalysis": true,
-    "al.enableCodeActions": true
+    "al.enableCodeActions": true,
+    "debug.internalConsoleOptions": "neverOpen"
   }
 }
