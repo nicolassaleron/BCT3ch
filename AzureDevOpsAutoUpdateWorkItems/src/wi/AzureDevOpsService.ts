@@ -15,10 +15,10 @@ export async function sendUpdateOperations(adoPat: string, operations: UpdateOpe
     const suppressNotifications = operations.some(op => op.suppressNotifications === false) ? false : true;
     const bypassRules = operations.some(op => op.bypassRules === true) ? true : false;
 
-    context.log(`Sending ${operations.length} operations to ${url}`);
-    context.log(`suppressNotifications: ${suppressNotifications}, bypassRules: ${bypassRules}`);
+    context.log(`\n\nSending ${operations.length} operations to ${url}`);
+    context.log(`\nsuppressNotifications: ${suppressNotifications}, bypassRules: ${bypassRules}`);
 
-    await axios.patch(url,
+    /*await axios.patch(url,
         operations.map(op => ({
             "op": op.op,
             "path": op.path,
@@ -35,7 +35,7 @@ export async function sendUpdateOperations(adoPat: string, operations: UpdateOpe
                 'Content-Type': 'application/json-patch+json'
             }
         }
-    );
+    );*/
 }
 
 /**
@@ -52,7 +52,7 @@ export async function getParentWorkItem(adoPat: string, serviceHook: WorkItemWeb
     );
 
     if (!parentRelation) {
-        context.log(`No parent relation found for work item ${serviceHook.resource.workItemId}`);
+        context.log(`\nNo parent relation found for work item ${serviceHook.resource.workItemId}`);
         return undefined;
     }
 
@@ -67,7 +67,7 @@ export async function getParentWorkItem(adoPat: string, serviceHook: WorkItemWeb
  * @returns The work item or undefined if not found
  */
 export async function getWorkItem(adoPat: string, workItemUrl: string, context: InvocationContext): Promise<WorkItem | undefined> {
-    context.log(`getWorkItem: ${workItemUrl}`);
+    context.log(`\n\ngetWorkItem: ${workItemUrl}`);
 
     try {
         const response = await axios.get(workItemUrl, {
@@ -79,9 +79,10 @@ export async function getWorkItem(adoPat: string, workItemUrl: string, context: 
                 'Content-Type': 'application/json'
             }
         });
+        context.log(`\ngetWorkItem: ${JSON.stringify(response.data)}`)
         return response.data as WorkItem;
     } catch (error) {
-        context.log(`Error fetching work item ${workItemUrl}: ${error}`);
+        context.log(`\nError fetching work item ${workItemUrl}: ${error}`);
         return undefined;
     }
 }
@@ -100,7 +101,7 @@ export async function getChildWorkItems(adoPat: string, workItem: WorkItem, cont
     );
 
     if (childRelations.length === 0) {
-        context.log(`No child relations found for work item ${workItem.id}`);
+        context.log(`\nNo child relations found for work item ${workItem.id}`);
         return [];
     }
 

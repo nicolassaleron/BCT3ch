@@ -34,6 +34,9 @@ export interface WorkItemWebhook {
             self: {
                 href: string;
             };
+            parent: {
+                href: string;
+            };
         };
     };
     resourceContainers: {

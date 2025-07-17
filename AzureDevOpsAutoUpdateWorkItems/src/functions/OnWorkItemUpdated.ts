@@ -1,7 +1,7 @@
 import { app, HttpRequest, HttpResponseInit, InvocationContext } from "@azure/functions";
 import axios from "axios";
-import { Rule, WorkItem, UpdateOperation, DSLParser } from "../dsl";
-import { getParentWorkItem, getWorkItem, getChildWorkItems, WorkItemWebhook } from "../wi";
+import { RuleEngine, WorkItem, UpdateOperation, DSLParser } from "../dsl";
+import { getParentWorkItem, getWorkItem, getChildWorkItems, WorkItemWebhook, sendUpdateOperations } from "../wi";
 
 
 /**
@@ -29,13 +29,13 @@ function isRequirementWorkItem(workItem: WorkItem): boolean {
 
 async function performOperations(adoPat: string, updateOperations: UpdateOperation[], context: InvocationContext): Promise<void> {
     if (updateOperations.length === 0) {
-        context.log('No update operations to send.');
+        context.log('\n\nNo update operations to send.');
         return;
     }
 
     const workItemUrl = updateOperations[0].url; // Assuming all operations are for the same work item
 
-    context.log(`Sending update operations to ${workItemUrl}`);
+    context.log(`\n\nSending update operations to ${workItemUrl}`);
 
     //Group operations by work item URL
     const groupedOperations: { [key: string]: UpdateOperation[] } = {};
@@ -52,17 +52,17 @@ async function performOperations(adoPat: string, updateOperations: UpdateOperati
         const operations = groupedOperations[url];
 
         try {
-            //sendUpdateOperations(adoPat, operations, context);
-            context.log('Update operations sent successfully.');
+            sendUpdateOperations(adoPat, operations, context);
+            context.log('\nUpdate operations sent successfully.');
         } catch (error) {
-            context.log(`Error sending update operations: ${error}`);
+            context.log(`\nError sending update operations: ${error}`);
         }
     }
 
 }
 
 export async function OnWorkItemUpdated(request: HttpRequest, context: InvocationContext): Promise<HttpResponseInit> {
-    context.log(`Http function processed request for url "${request.url}"`);
+    context.log(`\n\nHttp function processed request for url "${request.url}"`);
 
     if (!request.headers.has('X-ADO-PAT')) {
         return {
@@ -87,7 +87,7 @@ export async function OnWorkItemUpdated(request: HttpRequest, context: Invocatio
         }
     });
     const dslRules = adoRulesResponse.data;
-    context.log(`Raw rules to apply: ${dslRules}`);
+    context.log(`\nRaw rules to apply: ${dslRules}`);
 
     const serviceHook: WorkItemWebhook = await request.json() as WorkItemWebhook;
 
@@ -114,7 +114,7 @@ export async function OnWorkItemUpdated(request: HttpRequest, context: Invocatio
         };
     }
 
-    const triggeringWorkItem = await getWorkItem(adoPat, serviceHook.resource._links.self.href, context);
+    const triggeringWorkItem = await getWorkItem(adoPat, serviceHook.resource._links.parent.href, context);
     if (!triggeringWorkItem) {
         return {
             status: 400,
@@ -126,20 +126,24 @@ export async function OnWorkItemUpdated(request: HttpRequest, context: Invocatio
 
     const parser = new DSLParser();
     const rules = parser.parse(dslRules);
-    context.log(`Parsed rules to apply: ${JSON.stringify(rules)}`);
+    context.log(`\nParsed rules to apply: ${JSON.stringify(rules)}`);
 
     
     for (const rule of rules) {
         console.log(`\n--- Evaluating Rule: "${rule.name}" ---`);
+
+        const ruleEngine = new RuleEngine();
         
-        const isApplicable = this.ruleEngine.evaluateRule(rule, triggeringWorkItem, parentWorkItem, childWorkItems);
+        const isApplicable = ruleEngine.evaluateRule(rule, triggeringWorkItem, parentWorkItem, childWorkItems);
         console.log(`Rule applicable: ${isApplicable}`);
         
         if (isApplicable) {
-            const updateOperations = this.ruleEngine.executeRule(rule, triggeringWorkItem, parentWorkItem, childWorkItems);
+            const updateOperations = ruleEngine.executeRule(rule, triggeringWorkItem, parentWorkItem, childWorkItems);
             console.log('Update operations:', JSON.stringify(updateOperations, null, 2));
             
             await performOperations(adoPat, updateOperations, context);
+
+            break;
         }
     }
 
