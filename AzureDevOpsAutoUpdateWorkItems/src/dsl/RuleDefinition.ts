@@ -37,7 +37,7 @@ export interface RuleConstOperand {
  * Represents an operand that refers to a work item object in a rule condition or action.
  */
 export interface RuleObjectOperand {
-    object: "me" | "parent" | "child" | "children";
+    object: "implicit" | "me" | "parent" | "child" | "children";
     conditions?: RuleCondition[];
     field: string;
 }
@@ -50,11 +50,13 @@ export interface RuleAlterOptions {
     bypassRules?: boolean;
 }
 
-
 /**
  * Represents an update operation to be applied to a work item.
  */
 export interface UpdateOperation {
+    url: string;
+    suppressNotifications?: boolean;
+    bypassRules?: boolean;
     op: "replace";
     path: string;
     value: string;
