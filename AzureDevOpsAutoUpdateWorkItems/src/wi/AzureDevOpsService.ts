@@ -18,7 +18,7 @@ export async function sendUpdateOperations(adoPat: string, operations: UpdateOpe
     context.log(`\n\nSending ${operations.length} operations to ${url}`);
     context.log(`\nsuppressNotifications: ${suppressNotifications}, bypassRules: ${bypassRules}`);
 
-    /*await axios.patch(url,
+    await axios.patch(url,
         operations.map(op => ({
             "op": op.op,
             "path": op.path,
@@ -35,7 +35,7 @@ export async function sendUpdateOperations(adoPat: string, operations: UpdateOpe
                 'Content-Type': 'application/json-patch+json'
             }
         }
-    );*/
+    );
 }
 
 /**

@@ -1,5 +1,5 @@
 import { DSLParser } from './DSLParser';
-import { RuleEngine } from './RuleEngine';
+import { RuleEngine, WorkItem } from './RuleEngine';
 import { Rule } from './RuleDefinition';
 
 /**
@@ -34,45 +34,50 @@ rule "Development Complete":
         console.log('=== Parsing DSL ===');
         console.log(dslText);
         console.log('\n=== Parsed Rules ===');
-        
+
         const rules: Rule[] = this.parser.parse(dslText);
         console.log(JSON.stringify(rules, null, 2));
 
         console.log('\n=== Rule Evaluation Example ===');
-        
+
         // Mock work items for testing
-        const triggeringWorkItem = {
+        const triggeringWorkItem: WorkItem = {
             id: 123,
             url: "https://dev.azure.com/org/project/_apis/wit/workItems/123",
             fields: {
                 "System.Title": "Dev Task: Implement user login",
                 "System.State": "Active",
-                "System.AssignedTo": "john.developer@company.com",
+                "System.AssignedTo": {
+                    displayName: "John Developer",
+                    uniqueName: "john.developer@company.com"
+                },
                 "System.Tags": "",
                 "System.Reason": "New"
             }
         };
 
-        const parentWorkItem = {
+        const parentWorkItem: WorkItem = {
             id: 100,
             url: "https://dev.azure.com/org/project/_apis/wit/workItems/100",
             fields: {
                 "System.Title": "User Story: User Authentication",
                 "System.State": "New",
-                "System.AssignedTo": "",
                 "System.Tags": "",
                 "System.Reason": "New"
             }
         };
 
-        const childWorkItems = [
+        const childWorkItems: WorkItem[] = [
             {
                 id: 124,
                 url: "https://dev.azure.com/org/project/_apis/wit/workItems/124",
                 fields: {
                     "System.Title": "Test Task: User login tests",
                     "System.State": "New",
-                    "System.AssignedTo": "jane.tester@company.com",
+                    "System.AssignedTo": {
+                        displayName: "Jane Tester",
+                        uniqueName: "jane.tester@company.com"
+                    },
                     "System.Tags": "",
                     "System.Reason": "New"
                 }
@@ -83,7 +88,10 @@ rule "Development Complete":
                 fields: {
                     "System.Title": "Release Task: Deploy login feature",
                     "System.State": "New",
-                    "System.AssignedTo": "bob.deployer@company.com",
+                    "System.AssignedTo": {
+                        displayName: "Bob Deployer",
+                        uniqueName: "bob.deployer@company.com"
+                    },
                     "System.Tags": "",
                     "System.Reason": "New"
                 }
@@ -93,10 +101,10 @@ rule "Development Complete":
         // Test each rule
         for (const rule of rules) {
             console.log(`\n--- Evaluating Rule: "${rule.name}" ---`);
-            
+
             const isApplicable = this.ruleEngine.evaluateRule(rule, triggeringWorkItem, parentWorkItem, childWorkItems);
             console.log(`Rule applicable: ${isApplicable}`);
-            
+
             if (isApplicable) {
                 const updateOperations = this.ruleEngine.executeRule(rule, triggeringWorkItem, parentWorkItem, childWorkItems);
                 console.log('Update operations:', JSON.stringify(updateOperations, null, 2));
@@ -104,15 +112,18 @@ rule "Development Complete":
         }
 
         console.log('\n=== Testing Different Scenarios ===');
-        
+
         // Scenario 2: QA Task completed
-        const qaTask = {
+        const qaTask: WorkItem = {
             id: 124,
             url: "https://dev.azure.com/org/project/_apis/wit/workItems/124",
             fields: {
                 "System.Title": "QA Testing: User login validation",
                 "System.State": "Closed",
-                "System.AssignedTo": "jane.tester@company.com",
+                "System.AssignedTo": {
+                    displayName: "Jane Tester",
+                    uniqueName: "jane.tester@company.com"
+                },
                 "System.Tags": "",
                 "System.Reason": "Fixed"
             }
@@ -123,7 +134,7 @@ rule "Development Complete":
             if (rule.name === "QA Testing Complete") {
                 const isApplicable = this.ruleEngine.evaluateRule(rule, qaTask, parentWorkItem, childWorkItems);
                 console.log(`Rule "${rule.name}" applicable: ${isApplicable}`);
-                
+
                 if (isApplicable) {
                     const updateOperations = this.ruleEngine.executeRule(rule, qaTask, parentWorkItem, childWorkItems);
                     console.log('Update operations:', JSON.stringify(updateOperations, null, 2));

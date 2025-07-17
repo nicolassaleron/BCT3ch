@@ -14,7 +14,7 @@ export interface WorkItem {
         "System.Tags"?: string;
         "System.Reason"?: string;
     };
-    relations: {
+    relations?: {
         rel: string;
         url: string;
         attributes?: {
