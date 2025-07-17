@@ -76,51 +76,6 @@ interface WorkItem {
 }
 
 /**
- * Represents a rule for assigning and updating parent work items based on child work item states.
- */
-interface Rule {
-    if: {
-        /**
-         * A regular expression to match the title of the work item that triggered the function.
-         */
-        triggeredFrom?: string;
-        /**
-         * The state of the work item that triggered the function.
-         */
-        withState?: string;
-    };
-    then: {
-        /**
-         * Specifies the work item to update.
-         * If the value starts with ref: (for instance ref:Dev), it will be treated as a reference to a child work item where the title matches the value after ref:.
-         * If not specified, or if the value id parent, the parent work item will be updated.
-         */
-        workItem?: string;
-        /**
-         * The user to assign the work item to.
-         * If the value starts with ref: (for instance ref:Dev), it will be treated as a reference to a child work item where the title matches the value after ref:.
-         * If not specified, the work item assigned to field will not be assigned.
-         */
-        assignedTo?: string;
-        /**
-         * The state to set the work item to.
-         * If the value starts with ref: (for instance ref:Dev), it will be treated as a reference to a child work item where the title matches the value after ref:.
-         * If not specified, the work item state field will not be updated.
-         */
-        state?: string;
-    }[];
-}
-
-/**
- * Represents an update operation to be applied to a work item.
- */
-interface UpdateOperation {
-    op: "replace";
-    path: string;
-    value: string;
-}
-
-/**
  * Returns a value indicating whether the Azure DevOps service hook is related to a supported event.
  * @param serviceHook 
  * @returns 
@@ -281,16 +236,16 @@ async function getUpdateOperations(fieldName: string, thenValue: string | undefi
 async function applyRule(adoPat: string, serviceHook: WorkItemWebhook, requirementWorkItem: WorkItem, childWorkItems: WorkItem[], rule: Rule, context: InvocationContext): Promise<boolean> {
     context.log(`Evaluating rule: ${JSON.stringify(rule)}`);
 
-    if (rule.if.triggeredFrom) {
-        const triggeredFromRegex = new RegExp(rule.if.triggeredFrom);
+    if (rule.when.triggeredFrom) {
+        const triggeredFromRegex = new RegExp(rule.when.triggeredFrom);
         if (!triggeredFromRegex.test(serviceHook.resource.revision.fields["System.Title"])) {
-            context.log(`Triggered from condition does not match. Expected: ${rule.if.triggeredFrom}, Actual: ${serviceHook.resource.revision.fields["System.Title"]}`);
+            context.log(`Triggered from condition does not match. Expected: ${rule.when.triggeredFrom}, Actual: ${serviceHook.resource.revision.fields["System.Title"]}`);
             return false;
         }
     }
 
-    if (rule.if.withState !== serviceHook.resource.revision.fields["System.State"]) {
-        context.log(`State condition does not match. Expected: ${rule.if.withState}, Actual: ${serviceHook.resource.revision.fields["System.State"]}`);
+    if (rule.when.withState !== serviceHook.resource.revision.fields["System.State"]) {
+        context.log(`State condition does not match. Expected: ${rule.when.withState}, Actual: ${serviceHook.resource.revision.fields["System.State"]}`);
         return false;
     }
 
