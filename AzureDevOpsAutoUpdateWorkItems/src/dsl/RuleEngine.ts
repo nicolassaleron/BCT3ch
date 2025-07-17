@@ -7,12 +7,13 @@ export interface WorkItem {
         [key: string]: any;
         "System.Title": string;
         "System.State": string;
-        "System.AssignedTo"?: {
-            displayName: string;
-            uniqueName: string;
-        }
+        "System.AssignedTo"?: WorkItemAssignedTo
         "System.Tags"?: string;
         "System.Reason"?: string;
+        "System.WorkItemType"?: string;
+        "System.AreaPath"?: string;
+        "System.TeamProject"?: string;
+        "System.IterationPath"?: string;
     };
     relations?: {
         rel: string;
@@ -21,6 +22,11 @@ export interface WorkItem {
             name?: string;
         };
     }[];
+}
+
+interface WorkItemAssignedTo {
+    displayName: string;
+    uniqueName: string;
 }
 
 /**
@@ -124,6 +130,14 @@ export class RuleEngine {
         for (const workItem of targetWorkItems) {
             const fieldPath = `/fields/System.${action.assignableLeftOperand.field}`;
 
+            let valueAsString = String(value);
+            try {
+                if ('uniqueName' in value) { //Only work for WorkItemAssignedTo type
+                    valueAsString = String(value.uniqueName);
+                }
+            }
+            catch { }
+
             switch (action.operator) {
                 case "set":
                     operations.push({
@@ -132,7 +146,7 @@ export class RuleEngine {
                         bypassRules: action.alterOptions.bypassRules,
                         op: "replace",
                         path: fieldPath,
-                        value: String(value)
+                        value: valueAsString
                     });
                     break;
 
@@ -141,8 +155,8 @@ export class RuleEngine {
                     if (action.assignableLeftOperand.field.toLowerCase() === "tags") {
                         const currentTags = workItem.fields["System.Tags"] || "";
                         const tagsArray = currentTags ? currentTags.split("; ") : [];
-                        if (!tagsArray.includes(String(value))) {
-                            tagsArray.push(String(value));
+                        if (!tagsArray.includes(valueAsString)) {
+                            tagsArray.push(valueAsString);
                             operations.push({
                                 url: workItem.url,
                                 suppressNotifications: action.alterOptions.suppressNotifications,
@@ -160,7 +174,7 @@ export class RuleEngine {
                             bypassRules: action.alterOptions.bypassRules,
                             op: "replace",
                             path: fieldPath,
-                            value: String(value)
+                            value: valueAsString
                         });
                     }
                     break;
@@ -170,7 +184,7 @@ export class RuleEngine {
                     if (action.assignableLeftOperand.field.toLowerCase() === "tags") {
                         const currentTags = workItem.fields["System.Tags"] || "";
                         const tagsArray = currentTags ? currentTags.split("; ") : [];
-                        const filteredTags = tagsArray.filter(tag => tag !== String(value));
+                        const filteredTags = tagsArray.filter(tag => tag !== valueAsString);
                         operations.push({
                             url: workItem.url,
                             suppressNotifications: action.alterOptions.suppressNotifications,
@@ -215,7 +229,11 @@ export class RuleEngine {
             "State": "System.State",
             "AssignedTo": "System.AssignedTo",
             "Tags": "System.Tags",
-            "Reason": "System.Reason"
+            "Reason": "System.Reason",
+            "WorkItemType": "System.WorkItemType",
+            "AreaPath": "System.AreaPath",
+            "TeamProject": "System.TeamProject",
+            "IterationPath": "System.IterationPath"
         };
 
         const actualFieldName = fieldMap[operand.field] || operand.field;
@@ -253,7 +271,7 @@ export class RuleEngine {
                 return this.findMatchingChildren(operand.conditions, triggeringWorkItem, parentWorkItem, childWorkItems);
 
             default:
-                return [];
+                return [triggeringWorkItem];
         }
     }
 

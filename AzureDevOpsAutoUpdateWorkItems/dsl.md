@@ -1,10 +1,43 @@
-# Azure DevOps DSL Rules Examples
+# Azure DevOps DSL Parser
 
-This document provides examples of how to use the Domain-Specific Language (DSL) for defining Azure DevOps work item automation rules.
+This directory contains a Domain-Specific Language (DSL) parser for Azure DevOps work item automation rules. The parser converts human-readable rule definitions into structured `Rule` objects that can be processed by the rule engine.
 
-## DSL Syntax Reference
+## Features
 
-### Basic Structure
+- **DSL Parser**: Converts text-based rule definitions into structured objects
+- **Rule Engine**: Evaluates and executes rules against work items
+- **Type Safety**: Full TypeScript support with comprehensive interfaces
+- **Test Suite**: Comprehensive test coverage for all parser functionality
+
+## Quick Start
+
+```typescript
+import { DSLParser, RuleEngine } from './dsl';
+
+// Parse DSL text into rules
+const parser = new DSLParser();
+const dslText = `
+rule "Auto-assign Dev Tasks":
+    when me.Title contains "Development" and me.State is "Active"
+    then set parent.AssignedTo = me.AssignedTo
+         set parent.State = "Active"
+`;
+
+const rules = parser.parse(dslText);
+
+// Execute rules using the rule engine
+const ruleEngine = new RuleEngine();
+const isApplicable = ruleEngine.evaluateRule(rules[0], triggeringWorkItem, parentWorkItem, childWorkItems);
+
+if (isApplicable) {
+    const updateOperations = ruleEngine.executeRule(rules[0], triggeringWorkItem, parentWorkItem, childWorkItems);
+    // Apply updateOperations to Azure DevOps
+}
+```
+
+## DSL Syntax
+
+### Rule Structure
 ```
 rule "Rule Name":
     when <conditions>
@@ -12,93 +45,168 @@ rule "Rule Name":
 ```
 
 ### Conditions
+- `field operator "value"` - Compare field to constant value
+- `field operator other.field` - Compare field to another field
+- `and` - Combine multiple conditions
 
-- `leftOperand <operator> **rightOperand**` - Left value is compared to right value = the operator
-- `and` - Combine multiple conditions (all must be true)
+#### Supported Operators
+- `matches` - Regex match
+- `not matches` - Negative regex match
+- `contains` - String contains
+- `starts with` - String starts with
+- `ends with` - String ends with
+- `is` - Exact equality
+- `is not` - Not equal
 
-#### Operators
+#### Supported Objects
+- `me` - The work item that triggered the rule
+- `parent` - The parent work item
+- `child(condition)` - First child work item matching condition
+- `children(condition)` - All child work items matching condition
 
-- `matches` - Check if a value matches a regex pattern
-- `not matches` - Check if a value does not match a regex pattern
-- `contains` - Check if a value contains a substring
-- `starts with` - Check if a value starts with a substring
-- `ends with` - Check if a value ends with a substring
-- `is` - Check if a value is equal to another value
-- `is not` - Check if a value is not equal to another value
-
-#### About operands
-
-Left/right operands can be:
-- `"value"` - A constant value (string)
-- `field` - A field of the work item in the current context:
-  - In `when` conditions: refers to the triggering work item (same as `me.field`)
-  - In `child(<conditions>)`: refers to the current child work item being evaluated
-- `me.field` - The field of the work item that triggered the rule
-- `parent.field` - The field of the parent work item
-- `child(<condition>).field` - The field of the first child work item that matches the conditions
-
-Assignable left operands can be any operand except a constant value.
-In assignable left operands, you can also use:
-- `children(<condition>).field` - The field of all child work items that match the conditions. This is useful for bulk update on all child work items that match the conditions.
-
-Supported fields include:
-- `Id` - The ID of the work item, this is a read-only field
-- `Title` - The title of the work item
-- `State` - The state of the work item (e.g., Active, Closed)
-- `AssignedTo` - The user to whom the work item is assigned
-- `Tags` - The tags associated with the work item
-- `Reason` - The reason for the current state of the work item
+#### Supported Fields
+- `Id` - Work item ID (read-only)
+- `Title` - Work item title
+- `State` - Work item state
+- `AssignedTo` - Assigned user
+- `Tags` - Work item tags
+- `Reason` - State change reason
+- `WorkItemType` - Work item type
+- `AreaPath` - Work item area path
+- `TeamProject` - Work item team project
+- `IterationPath` - Work item iteration path
 
 ### Actions
-
-- `set [with <alter-options>] assignableLeftOperand = rightOperand` - Assign the value of the right operand to the left operand
-- `add [with <alter-options>] "value" to field` - Add a value to a field (e.g., Tags)
-- `remove [with <alter-options>] "value" from field` - Remove a value from a field (e.g., Tags)
+- `set target = value` - Assign value to target
+- `add "value" to field` - Add value to field (e.g., tags)
+- `remove "value" from field` - Remove value from field
 
 #### Alter Options
+Actions can include options:
+- `set with suppressNotifications target = value`
+- `set with bypassRules target = value`
 
-- `suppressNotifications` - Specifies the change will not trigger hook notifications. This value is implicit if not specified. This value cannot be used with `notifications`.
-- `notifications` - Specifies the change will trigger hook notifications. This value cannot be used with `suppressNotifications`.
-- `bypassRules` - Specifies the change will bypass rules processing.
+## Examples
 
-## Example Rules
-
-### Development Workflow
+### Basic Assignment
 ```
 rule "Developer Task Started":
     when me.Title contains "Dev" and me.State is "Active"
     then set parent.AssignedTo = me.AssignedTo
          set parent.State = "Active"
-
-rule "Developer Task Finished":
-    when me.Title contains "Dev" and me.State is "Closed"
-    then set with notifications child(title matches ".*(Test|QA).*").State = "Active"
 ```
 
-### Testing Workflow
+### Conditional Child Updates
 ```
 rule "QA Testing Complete":
     when me.Title matches ".*(Test|QA).*" and me.State is "Closed"
-    then set parent.AssignedTo = child(title matches ".*Release.*").AssignedTo 
-         set parent.State = "Active"
+    then set parent.AssignedTo = child(title matches ".*Release.*").AssignedTo
+         add "Ready for Deployment" to parent.Tags
 ```
 
-## Common Use Cases
-
-### 1. Automatic Assignment Based on Task Type
-When a developer task becomes active, automatically assign the parent user story to the developer:
-
+### Bulk Child Updates
 ```
-rule "Auto-assign Dev Tasks":
-    when me.Title matches ".*Development.*" and me.State is "Active"
-    then set parent.AssignedTo = me.AssignedTo
+rule "Development Complete":
+    when me.Title contains "Development" and me.State is "Closed"
+    then set children(title contains "Test").State = "Active"
+         add "Dev Complete" to me.Tags
 ```
 
-### 2. Status Propagation
-When testing is complete, mark the parent for deployment:
+## API Reference
 
+### DSLParser
+
+```typescript
+class DSLParser {
+    parse(dslText: string): Rule[]
+}
 ```
-rule "Testing Complete":
-    when me.Title matches ".*Test.*" and me.State is "Closed"
-    then add "Ready for Deployment" to parent.Tags         
+
+Parses DSL text and returns an array of `Rule` objects.
+
+### RuleEngine
+
+```typescript
+class RuleEngine {
+    evaluateRule(rule: Rule, triggeringWorkItem: WorkItem, parentWorkItem?: WorkItem, childWorkItems?: WorkItem[]): boolean
+    executeRule(rule: Rule, triggeringWorkItem: WorkItem, parentWorkItem?: WorkItem, childWorkItems?: WorkItem[]): UpdateOperation[]
+}
 ```
+
+Evaluates rule conditions and generates update operations for Azure DevOps.
+
+### Rule Interface
+
+```typescript
+interface Rule {
+    name: string;
+    when: RuleCondition[];
+    then: RuleThenActions[];
+}
+```
+
+## Error Handling
+
+The parser throws descriptive errors for syntax issues:
+
+```typescript
+try {
+    const rules = parser.parse(dslText);
+} catch (error) {
+    console.error('DSL parsing error:', error.message);
+}
+```
+
+## Testing
+
+Run the test suite:
+
+```bash
+npm run build
+node dist/src/dsl/DSLParserTests.js
+node dist/src/dsl/DSLExample.js
+```
+
+## Integration
+
+The DSL parser can be integrated into Azure Functions or other Azure DevOps automation systems:
+
+```typescript
+import { DSLParser, RuleEngine } from './dsl';
+
+async function processWorkItemUpdate(workItemWebhook: WorkItemWebhook) {
+    // Load rules from configuration
+    const dslText = await loadRulesFromConfig();
+    
+    // Parse rules
+    const parser = new DSLParser();
+    const rules = parser.parse(dslText);
+    
+    // Get work item data
+    const triggeringWorkItem = await getWorkItem(workItemWebhook.resource.workItemId);
+    const parentWorkItem = await getParentWorkItem(triggeringWorkItem);
+    const childWorkItems = await getChildWorkItems(parentWorkItem);
+    
+    // Apply rules
+    const ruleEngine = new RuleEngine();
+    for (const rule of rules) {
+        if (ruleEngine.evaluateRule(rule, triggeringWorkItem, parentWorkItem, childWorkItems)) {
+            const updateOperations = ruleEngine.executeRule(rule, triggeringWorkItem, parentWorkItem, childWorkItems);
+            await applyUpdates(updateOperations);
+        }
+    }
+}
+```
+
+## Files
+
+- `RuleDefinition.ts` - TypeScript interfaces for rules and operations
+- `DSLParser.ts` - Main parser implementation
+- `RuleEngine.ts` - Rule evaluation and execution engine
+- `DSLParserTests.ts` - Test suite for parser functionality
+- `DSLExample.ts` - Comprehensive usage examples
+- `index.ts` - Module exports
+
+## License
+
+This DSL parser is part of the Azure DevOps automation project.
