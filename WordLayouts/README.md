@@ -60,20 +60,18 @@ You can easily distinguish a different header on the first page of your document
 
     ![How to repeat table headers on each page?](RepeatTableHeadersOnEachPage-0.png)
 
+# How to make sure each row of a table has the same height?
+
+This case typically happens when you have two tables next to each other and you want the lines to be aligned. To achieve this, you can set a fixed height for the rows in both tables.
+
+1. Select the rows of your table that you want to have the same height.
+2. In the ribbon, click on the **Table Layout** tab.
+3. In the Row tab, set a specific value for the **Height** option and make sure to select **Exactly** from the dropdown menu next to it. This will ensure that all selected rows have the same fixed height.
+
+    ![How to make sure each row of a table has the same height?](SameHeightTableRows-0.png)
+
 # Dos and Don'ts
 
 | Dos                                               | Don'ts                                                                                                                                                                |
 | ------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Use Styles to maintain consistency in formatting. | Avoid using the Font and Paragraph formatting options directly on the content, as it can lead to inconsistent formatting and make it harder to maintain the document. |
-
-
-
-Bugs :
-Modifier la taille d’une colonne dans un tableau peut produire un crash de Word. Pas d’explications trouvées.
-Inconsistance du passage body 🡪 Header/Footer : Parfois le double click fonctionne parfois seul le passage par menu/Insert/Header(Footer)/Modify fonctionne.
-(BC) Update and Export Layout : Parfois un message d’erreur est déclenché, mais le layout est quand même mis à jour et téléchargé.
-Pas intuitif :
-Format des cellules/lignes/colonnes de tableaux disponibles uniquement depuis format du tableau.
-Inconvénients :
-Formatage hors styles à éviter.
-Tableaux dynamiques impossibles hors repeater (conditionner affichage d’une ligne en fonction de la valeur d’une colonne).
