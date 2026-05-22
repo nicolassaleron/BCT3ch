@@ -11,6 +11,9 @@
     },
     {
       "path": "WordLayouts"
+    },
+    {
+      "path": "DesignPatterns"
     }
   ],
   "settings": {
